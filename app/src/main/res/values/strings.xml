@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">WorkManager</string>
+    <string name="go_to_settings">Go to settings</string>
 </resources>
