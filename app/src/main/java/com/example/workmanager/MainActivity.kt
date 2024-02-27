@@ -11,17 +11,25 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import androidx.work.BackoffPolicy
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import com.example.workmanager.databinding.ActivityMainBinding
 import com.google.android.material.snackbar.Snackbar
 import dagger.hilt.android.AndroidEntryPoint
 import java.time.Duration
 import android.Manifest
+import android.util.Log
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.lifecycleScope
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
 
 @AndroidEntryPoint
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), LifecycleOwner {
 
     private lateinit var binding: ActivityMainBinding
 
@@ -30,21 +38,43 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        askNotificationPermission()
+        lifecycleScope.launch {
+            askNotificationPermission()
+        }
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
-    private fun makeWorkRequest() {
-        val workRequest = OneTimeWorkRequestBuilder<CustomWorker>()
-            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            .setBackoffCriteria(
-                BackoffPolicy.LINEAR,
-                Duration.ofSeconds(15)
-            )
+    private suspend fun makeWorkRequest() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.UNMETERED)
+            .setRequiresCharging(true)
             .build()
-        WorkManager.getInstance(applicationContext).enqueue(workRequest)
+        val workRequest = PeriodicWorkRequestBuilder<CustomWorker>(
+            1,
+            TimeUnit.HOURS,
+            15,
+            TimeUnit.MINUTES
+        ).setBackoffCriteria(
+            BackoffPolicy.LINEAR,
+            Duration.ofSeconds(15)
+        ).setConstraints(constraints)
+            .build()
+        val workManager = WorkManager.getInstance(applicationContext)
+        workManager.enqueueUniquePeriodicWork(
+            "myWork",
+            ExistingPeriodicWorkPolicy.KEEP,
+            workRequest
+        )
+        workManager.getWorkInfosByTagLiveData("myWork")
+            .observe(this as LifecycleOwner) {
+                it.forEach { workInfo ->
+                    Log.e("WorkState", "${workInfo.state}")
+                }
+            }
+        delay(10000)
+        workManager.cancelUniqueWork("myWork")
     }
-    private fun askNotificationPermission() {
+    private suspend fun askNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
                     this, Manifest.permission.POST_NOTIFICATIONS) ==
